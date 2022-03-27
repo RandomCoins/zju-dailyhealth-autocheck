@@ -197,7 +197,7 @@ class HealthCheckInHelper(ZJULogin):
             'sfyxjzxgym': '1',
             # 是否不宜接种人群
             'sfbyjzrq': '5',
-            'jzxgymqk': '5', # 这里是第三针相关参数，1是已接种第一针，4是已接种第二针（已满6个月），5是已接种第二针（未满6个月），6是已接种第三针，3是未接种，记得自己改
+            'jzxgymqk': '6', # 这里是第三针相关参数，1是已接种第一针，4是已接种第二针（已满6个月），5是已接种第二针（未满6个月），6是已接种第三针，3是未接种，记得自己改
             'tw': '0',
             'sfcxtz': '0',
             'sfjcbh': '0',
@@ -223,7 +223,7 @@ class HealthCheckInHelper(ZJULogin):
             # '\u676D\u5DDE\u5E02'
             'city': address_component.get("city"),
             # 是否在校：这里写的是没有在校，在校将'sfzx'改为1
-            'sfzx': '0', 
+            'sfzx': '1', 
             'sfjcwhry': '0',
             'sfjchbry': '0',
             'sfcyglq': '0',
