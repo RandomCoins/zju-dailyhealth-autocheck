@@ -263,7 +263,7 @@ class HealthCheckInHelper(ZJULogin):
             'gtjzzfjsj': '',
             'gwszdd': '',
             'szgjcs': '',
-            'ismoved': '1', # 位置变化了，我回家了:) 到家之后记得改成0
+            'ismoved': '0', # 位置变化了，我回家了:) 到家之后记得改成0
             'zgfx14rfhsj':'',
         }
         response = self.sess.post('https://healthreport.zju.edu.cn/ncov/wap/default/save', data=data,
