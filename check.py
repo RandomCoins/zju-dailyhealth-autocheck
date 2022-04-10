@@ -222,6 +222,7 @@ class HealthCheckInHelper(ZJULogin):
             # 杭州市
             # '\u676D\u5DDE\u5E02'
             'city': address_component.get("city"),
+            'campus': '玉泉校区',
             # 是否在校：这里写的是没有在校，在校将'sfzx'改为1
             'sfzx': '1', 
             'sfjcwhry': '0',
