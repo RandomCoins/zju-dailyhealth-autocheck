@@ -5,12 +5,9 @@ import datetime
 import time
 import os
 import random
-from tgpush import post_tg
-from dingpush_encryption import dingding_bot,post_ding
-TG_TOKEN = os.getenv("TG_TOKEN")	#TG机器人的TOKEN
-CHAT_ID = os.getenv("CHAT_ID")	    #推送消息的CHAT_ID
-DD_BOT_TOKEN = os.getenv("DD_BOT_TOKEN")
-DD_BOT_SECRET=os.getenv("DD_BOT_SECRET") #哈希算法验证(可选)
+from notify.tgpush import post_tg
+from notify.Dingpush import dingpush
+from utils import verify
 
 #签到程序模块
 class LoginError(Exception):
@@ -50,16 +47,26 @@ class ZJULogin(object):
         sess: (requests.Session) 统一的session管理
     """
     headers = {
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36',
+        'user-agent': 'Mozilla/5.0 (Linux; U; Android 11; zh-CN; M2012K11AC Build/RKQ1.200826.002) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/69.0.3497.100 UWS/3.22.0.36 Mobile Safari/537.36 AliApp(DingTalk/6.0.7.1) com.alibaba.android.rimet.zju/14785964 Channel/1543545060864 language/zh-CN 2ndType/exclusive UT4Aplus/0.2.25 colorScheme/light',
     }
-    BASE_URL = "https://healthreport.zju.edu.cn/ncov/wap/default/index"
-    LOGIN_URL = "https://zjuam.zju.edu.cn/cas/login?service=http%3A%2F%2Fservice.zju.edu.cn%2F"
 
     def __init__(self, username, password, delay_run=False):
         self.username = username
         self.password = password
         self.delay_run = delay_run
         self.sess = requests.Session()
+        self.imgaddress = 'https://healthreport.zju.edu.cn/ncov/wap/default/code'
+        self.BASE_URL = "https://healthreport.zju.edu.cn/ncov/wap/default/index"
+        self.LOGIN_URL = "https://zjuam.zju.edu.cn/cas/login?service=http%3A%2F%2Fservice.zju.edu.cn%2F"
+        
+        self.TG_TOKEN = os.getenv("TG_TOKEN")	#TG机器人的TOKEN
+        self.CHAT_ID = os.getenv("CHAT_ID")	    #推送消息的CHAT_ID
+        self.DD_BOT_TOKEN = os.getenv("DD_BOT_TOKEN")
+        self.DD_BOT_SECRET=os.getenv("DD_BOT_SECRET") #哈希算法验证(可选)
+        self.reminders = os.getenv("REMINDERS")
+
+        self.lng= os.getenv("lng")
+        self.lat= os.getenv("lat")
 
     def login(self):
         """Login to ZJU platform"""
@@ -96,7 +103,7 @@ class ZJULogin(object):
 
 class HealthCheckInHelper(ZJULogin):
     headers = {
-        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36',
+        'user-agent': 'Mozilla/5.0 (Linux; U; Android 11; zh-CN; M2012K11AC Build/RKQ1.200826.002) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/69.0.3497.100 UWS/3.22.0.36 Mobile Safari/537.36 AliApp(DingTalk/6.0.7.1) com.alibaba.android.rimet.zju/14785964 Channel/1543545060864 language/zh-CN 2ndType/exclusive UT4Aplus/0.2.25 colorScheme/light',
     }
 
     REDIRECT_URL = "https://zjuam.zju.edu.cn/cas/login?service=https%3A%2F%2Fhealthreport.zju.edu.cn%2Fa_zju%2Fapi%2Fsso%2Findex%3Fredirect%3Dhttps%253A%252F%252Fhealthreport.zju.edu.cn%252Fncov%252Fwap%252Fdefault%252Findex%26from%3Dwap"
@@ -108,7 +115,7 @@ class HealthCheckInHelper(ZJULogin):
             'cache-control': 'no-cache',
             'sec-ch-ua': '"Chromium";v="92", " Not A;Brand";v="99", "Google Chrome";v="92"',
             'sec-ch-ua-mobile': '?0',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.159 Safari/537.36',
+            'user-agent': 'Mozilla/5.0 (Linux; U; Android 11; zh-CN; M2012K11AC Build/RKQ1.200826.002) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/69.0.3497.100 UWS/3.22.0.36 Mobile Safari/537.36 AliApp(DingTalk/6.0.7.1) com.alibaba.android.rimet.zju/14785964 Channel/1543545060864 language/zh-CN 2ndType/exclusive UT4Aplus/0.2.25 colorScheme/light',
             'accept': '*/*',
             'sec-fetch-site': 'cross-site',
             'sec-fetch-mode': 'no-cors',
@@ -156,186 +163,199 @@ class HealthCheckInHelper(ZJULogin):
         if not formatted_address or not address_component: return
 
         # 获得id和uid参数
+        time.sleep(3)
         res = self.sess.get(self.BASE_URL, headers=self.headers)
+        if len(res.content) == 0:
+            print('网页获取失败，请检查网络并重试')
+            self.Push('网页获取失败，请检查网络并重试')
         html = res.content.decode()
-        new_info_tmp = json.loads(re.findall(r'def = ({[^\n]+})', html)[0])
-        new_id = new_info_tmp['id']
-        new_uid = new_info_tmp['uid']
-        # 拼凑geo信息
-        lng, lat = address_component.get("streetNumber").get("location").split(",")
-        geo_api_info_dict = {"type": "complete", "info": "SUCCESS", "status": 1, "cEa": "jsonp_859544_",
-                             "position": {"Q": lat, "R": lng, "lng": lng, "lat": lat},
-                             "message": "Get ipLocation success.Get address success.", "location_type": "ip",
-                             "accuracy": "null", "isConverted": "true", "addressComponent": address_component,
-                             "formattedAddress": formatted_address, "roads": [], "crosses": [], "pois": []}
+        try:
+            done = re.findall('温馨提示： 不外出、不聚集、不吃野味， 戴口罩、勤洗手、咳嗽有礼，开窗通风，发热就诊',html)[0]
+            print(done)
+            try:
+                res = self.sess.get(self.imgaddress, headers=self.headers)
+                code_get = verify.getcode(res.content)
+                code = code_get.main()
+                if not code :
+                    self.Push('验证码识别失败，请重试')
+                    return
+                else:
+                    self.Push('验证码识别成功，请稍后')
+            except:
+                print('验证码识别失败')
+        except:
+            print('打卡网页获取失败')
+            self.Push('打卡网页获取失败')
+        finally:
+            new_info_tmp = json.loads(re.findall(r'def = ({[^\n]+})', html)[0])
+            new_id = new_info_tmp['id']
+            new_uid = new_info_tmp['uid']
+            # 拼凑geo信息
+            lng, lat = address_component.get("streetNumber").get("location").split(",")
+            geo_api_info_dict = {"type": "complete", "info": "SUCCESS", "status": 1, 
+                                "position": {"Q": lat, "R": lng, "lng": lng, "lat": lat},
+                                "message": "Get geolocation success.Convert Success.Get address success.", "location_type": "ip",
+                                "accuracy": "null", "isConverted": "true", "addressComponent": address_component,
+                                "formattedAddress": formatted_address, "roads": [], "crosses": [], "pois": []}
+            #print('打卡地点：', formatted_address)
+            #拿到校验值
+            verify_data = re.findall(r'"([a-z0-9]*?)": "([0-9]*?)","([a-z0-9]*?)":"([a-z0-9]*?)"',html)[0]
+            verify_code = {
+                verify_data[0]:verify_data[1],
+                verify_data[2]:verify_data[3],
+            }
+            data = {
+                'sfymqjczrj': '0',
+                'zjdfgj': '',
+                'sfyrjjh': '0',
+                'cfgj': '',
+                'tjgj': '',
+                'nrjrq': '0',
+                'rjka': '',
+                'jnmddsheng': '',
+                'jnmddshi': '',
+                'jnmddqu': '',
+                'jnmddxiangxi': '',
+                'rjjtfs': '',
+                'rjjtfs1': '',
+                'rjjtgjbc': '',
+                'jnjtfs': '',
+                'jnjtfs1': '',
+                'jnjtgjbc': '',
+                # 是否确认信息属实
+                'sfqrxxss': '1',
+                'sfqtyyqjwdg': '0',
+                'sffrqjwdg': '0',
+                'sfhsjc': '',
+                'zgfx14rfh': '0',
+                'zgfx14rfhdd': '',
+                'sfyxjzxgym': '1',
+                # 是否不宜接种人群
+                'sfbyjzrq': '5',
+                'jzxgymqk': '6', # 这里是第三针相关参数，1是已接种第一针，4是已接种第二针（已满6个月），5是已接种第二针（未满6个月），6是已接种第三针，3是未接种，记得自己改
+                'tw': '0',
+                'sfcxtz': '0',
+                'sfjcbh': '0',
+                'sfcxzysx': '0',
+                'jcjg': '',
+                'qksm': '',
+                'sfyyjc': '0',
+                'jcjgqr': '0',
+                'remark': '',
+                'address': formatted_address,
+                # {"type":"complete","position":{"Q":30.30975640191,"R":120.085647515191,"lng":120.085648,"lat":30.309756},"location_type":"html5","message":"Get geolocation success.Convert Success.Get address success.","accuracy":40,"isConverted":true,"status":1,"addressComponent":{"citycode":"0571","adcode":"330106","businessAreas":[],"neighborhoodType":"","neighborhood":"","building":"","buildingType":"","street":"龙宇街","streetNumber":"17-18号","country":"中国","province":"浙江省","city":"杭州市","district":"西湖区","towncode":"330106109000","township":"三墩镇"},"formattedAddress":"浙江省杭州市西湖区三墩镇翠柏浙江大学(紫金港校区)","roads":[],"crosses":[],"pois":[],"info":"SUCCESS"}
+                'geo_api_info': geo_api_info_dict,
+                # 浙江省 杭州市 西湖区
+                # '\u6D59\u6C5F\u7701 \u676D\u5DDE\u5E02 \u897F\u6E56\u533A'
+                'area': "{} {} {}".format(address_component.get("province"), address_component.get("city"),
+                                        address_component.get("district")),
+                # 浙江省
+                # '\u6D59\u6C5F\u7701'
+                'province': address_component.get("province"),
+                # 杭州市
+                # '\u676D\u5DDE\u5E02'
+                'city': address_component.get("city"),
+                # 是否在校：在校将'sfzx'改为1
+                'sfzx': '1', 
+                'sfjcwhry': '0',
+                'sfjchbry': '0',
+                'sfcyglq': '0',
+                'gllx': '',
+                'glksrq': '',
+                'jcbhlx': '',
+                'jcbhrq': '',
+                'bztcyy': '4', 
+                'sftjhb': '0',
+                'sftjwh': '0',
+                'fjsj':	'0',
+                'sfjcqz': '', 
+                'jcqzrq': '',
+                'jrsfqzys': '',
+                'jrsfqzfy': '',
+                'sfyqjzgc': '',
+                # 是否申领杭州健康码
+                'sfsqhzjkk': '1',
+                # 杭州健康吗颜色，1:绿色 2:红色 3:黄色
+                'sqhzjkkys': '1',
+                'gwszgzcs': '',
+                'szgj': '',
+                'fxyy': '',
+                'jcjg': '',
+                # uid每个用户不一致
+                'uid': new_uid,     
+                # id每个用户不一致
+                'id': new_id,
+                # 日期
+                'date': get_date(),
+                'created': round(time.time()),
+                'szsqsfybl': '0',
+                'sfygtjzzfj': '0',
+                'gtjzzfjsj': '',
+                'gwszdd': '',
+                'szgjcs': '',
+                'ismoved': '0', # 位置变化为1，不变为0
+                'zgfx14rfhsj':'',
+                'jrdqjcqk': '',
+                'jcwhryfs': '',	
+                'jchbryfs': '',	
+                'xjzd': '',	
+                'sfsfbh':'0',
+                'jhfjrq':'',	
+                'jhfjjtgj':'',	
+                'jhfjhbcc':'',	
+                'jhfjsftjwh':'0',
+                'jhfjsftjhb':'0',
+                'szsqsfybl':'0',
+                'gwszgz':'',
+                'campus': '紫金港校区', # 紫金港校区 玉泉校区 西溪校区 华家池校区 之江校区 海宁校区 舟山校区 宁波校区 工程师学院 杭州国际科创中心 其他
+                # 👇-----2022.5.7日修改-----👇
+                'verifyCode': code,
+                # 👆-----2022.5.7日修改-----👆
+            }
+            data.update(verify_code)
+            response = self.sess.post('https://healthreport.zju.edu.cn/ncov/wap/default/save', data=data,
+                                    headers=self.headers)
+            return response.json()
 
-        data = {
-            'sfymqjczrj': '0',
-            'zjdfgj': '',
-            'sfyrjjh': '0',
-            'cfgj': '',
-            'tjgj': '',
-            'nrjrq': '0',
-            'rjka': '',
-            'jnmddsheng': '',
-            'jnmddshi': '',
-            'jnmddqu': '',
-            'jnmddxiangxi': '',
-            'rjjtfs': '',
-            'rjjtfs1': '',
-            'rjjtgjbc': '',
-            'jnjtfs': '',
-            'jnjtfs1': '',
-            'jnjtgjbc': '',
-            # 是否确认信息属实
-            'sfqrxxss': '1',
-            'sfqtyyqjwdg': '0',
-            'sffrqjwdg': '0',
-            'sfhsjc': '',
-            'zgfx14rfh': '0',
-            'zgfx14rfhdd': '',
-            'sfyxjzxgym': '1',
-            # 是否不宜接种人群
-            'sfbyjzrq': '5',
-            'jzxgymqk': '6', # 这里是第三针相关参数，1是已接种第一针，4是已接种第二针（已满6个月），5是已接种第二针（未满6个月），6是已接种第三针，3是未接种，记得自己改
-            'tw': '0',
-            'sfcxtz': '0',
-            'sfjcbh': '0',
-            'sfcxzysx': '0',
-            'qksm': '',
-            'sfyyjc': '0',
-            'jcjgqr': '0',
-            'remark': '',
-            # 浙江省杭州市西湖区三墩镇西湖国家广告产业园西湖广告大厦
-            # '\u6D59\u6C5F\u7701\u676D\u5DDE\u5E02\u897F\u6E56\u533A\u4E09\u58A9\u9547\u897F\u6E56\u56FD\u5BB6\u5E7F\u544A\u4EA7\u4E1A\u56ED\u897F\u6E56\u5E7F\u544A\u5927\u53A6',
-            'address': formatted_address,
-            # {"type":"complete","info":"SUCCESS","status":1,"cEa":"jsonp_859544_","position":{"Q":30.30678,"R":120.06375000000003,"lng":120.06375,"lat":30.30678},"message":"Get ipLocation success.Get address success.","location_type":"ip","accuracy":null,"isConverted":true,"addressComponent":{"citycode":"0571","adcode":"330106","businessAreas":[],"neighborhoodType":"","neighborhood":"","building":"","buildingType":"","street":"西园三路","streetNumber":"1号","country":"中国","province":"浙江省","city":"杭州市","district":"西湖区","township":"三墩镇"},"formattedAddress":"浙江省杭州市西湖区三墩镇西湖国家广告产业园西湖广告大厦","roads":[],"crosses":[],"pois":[]}
-            # '{"type":"complete","info":"SUCCESS","status":1,"cEa":"jsonp_859544_","position":{"Q":30.30678,"R":120.06375000000003,"lng":120.06375,"lat":30.30678},"message":"Get ipLocation success.Get address success.","location_type":"ip","accuracy":null,"isConverted":true,"addressComponent":{"citycode":"0571","adcode":"330106","businessAreas":[],"neighborhoodType":"","neighborhood":"","building":"","buildingType":"","street":"\u897F\u56ED\u4E09\u8DEF","streetNumber":"1\u53F7","country":"\u4E2D\u56FD","province":"\u6D59\u6C5F\u7701","city":"\u676D\u5DDE\u5E02","district":"\u897F\u6E56\u533A","township":"\u4E09\u58A9\u9547"},"formattedAddress":"\u6D59\u6C5F\u7701\u676D\u5DDE\u5E02\u897F\u6E56\u533A\u4E09\u58A9\u9547\u897F\u6E56\u56FD\u5BB6\u5E7F\u544A\u4EA7\u4E1A\u56ED\u897F\u6E56\u5E7F\u544A\u5927\u53A6","roads":[],"crosses":[],"pois":[]}',
-            'geo_api_info': geo_api_info_dict,
-            # 浙江省 杭州市 西湖区
-            # '\u6D59\u6C5F\u7701 \u676D\u5DDE\u5E02 \u897F\u6E56\u533A'
-            'area': "{} {} {}".format(address_component.get("province"), address_component.get("city"),
-                                      address_component.get("district")),
-            # 浙江省
-            # '\u6D59\u6C5F\u7701'
-            'province': address_component.get("province"),
-            # 杭州市
-            # '\u676D\u5DDE\u5E02'
-            'city': address_component.get("city"),
-            'campus': '玉泉校区',
-            # 是否在校：这里写的是没有在校，在校将'sfzx'改为1
-            'sfzx': '1', 
-            'sfjcwhry': '0',
-            'sfjchbry': '0',
-            'sfcyglq': '0',
-            'gllx': '',
-            'glksrq': '',
-            'jcbhlx': '',
-            'jcbhrq': '',
-            'bztcyy': '4', # 这里也变了
-            'sftjhb': '0',
-            'sftjwh': '0',
-            
-            # 👇-----12.1日修改-----👇
-            'sfjcqz': '', #修改
-            'jcqzrq': '',
-            # 👆-----12.1日修改-----👆
-            'jrsfqzys': '',
-            'jrsfqzfy': '',
-            'sfyqjzgc': '',
-            # 是否申领杭州健康码
-            'sfsqhzjkk': '1',
-            # 杭州健康吗颜色，1:绿色 2:红色 3:黄色
-            'sqhzjkkys': '1',
-            'gwszgzcs': '',
-            'szgj': '',
-            'fxyy': '',
-            'jcjg': '',
-            # uid每个用户不一致
-            'uid': new_uid,     # 又有了
-            # id每个用户不一致
-            'id': new_id,
-            # 下列原来参数都是12.1新版没有的
-            # 日期
-            'date': get_date(),
-            'created': round(time.time()),
-            'szsqsfybl': '0',
-            'sfygtjzzfj': '0',
-            'gtjzzfjsj': '',
-            'gwszdd': '',
-            'szgjcs': '',
-            'ismoved': '1', # 位置变化了，我回家了:) 到家之后记得改成0
-            'zgfx14rfhsj':'',
-        }
-        response = self.sess.post('https://healthreport.zju.edu.cn/ncov/wap/default/save', data=data,
-                                  headers=self.headers)
-        return response.json()
-
+    def Push(self,res):
+        if res:
+            if self.CHAT_ID and self.TG_TOKEN :
+                post_tg('浙江大学每日健康打卡 V3.0 '+ f" \n\n 签到结果:{res}", self.CHAT_ID, self.TG_TOKEN) 
+            else:
+                print("telegram推送未配置,请自行查看签到结果")
+            if self.DD_BOT_TOKEN:
+                ding= dingpush('浙江大学每日健康打卡 V3.0 ', res,self.reminders,self.DD_BOT_TOKEN,self.DD_BOT_SECRET)
+                ding.SelectAndPush()
+            else:
+                print("钉钉推送未配置，请自行查看签到结果")
+            print("推送完成！")
+        
     def run(self):
         print("正在为{}健康打卡".format(self.username))
         if self.delay_run:
             # 确保定时脚本执行时间不太一致
-            time.sleep(random.randint(0, 10))
-        # 拿到Cookies和headers
+            time.sleep(random.randint(10, 100))
         try:
             self.login()
             # 拿取eai-sess的cookies信息
             self.sess.get(self.REDIRECT_URL)
-            # 由于IP定位放到服务器上运行后会是服务器的IP定位
             # location = get_ip_location()
             # print(location)
-            lng= os.getenv("lng")
-            lat= os.getenv("lat")
-            location = {'info': 'LOCATE_SUCCESS', 'status': 1, 'lng': lng, 'lat': lat}
+            location = {'info': 'LOCATE_SUCCESS', 'status': 1, 'lng': self.lng, 'lat': self.lat}
             geo_info = self.get_geo_info(location)
             # print(geo_info)
             res = self.take_in(geo_info)
             print(res)
-            #TG推送
-            if CHAT_ID is None or TG_TOKEN is None :
-                print("telegram推送未配置，请自行查看签到结果")
-            else:   
-                #调用tg推送模块
-                post_tg('浙江大学每日健康打卡 V1.3 '+ " \n\n 签到结果: " + res.get("m")) 
-                
-            #钉钉推送
-            if DD_BOT_TOKEN is None :
-                print("未启用钉钉推送")
-            else :
-                if DD_BOT_SECRET is None : 
-                    msg = '浙江大学每日健康打卡 V1.3 '+ " \n\n 签到结果: " + res.get("m")
-                    reminders = [""] #提醒，填入手机号
-                    url = f'https://oapi.dingtalk.com/robot/send?access_token={DD_BOT_TOKEN}' 
-                    print(post_ding(url, reminders, msg))
-                else :
-                    title = "浙江大学每日健康打卡 V1.3"
-                    content = " \n\n 签到结果: " + res.get("m")
-                    dingding_bot(title,content)
-                
-        except requests.exceptions.ConnectionError as err:
+            self.Push(res)
+        except requests.exceptions.ConnectionError :
             # reraise as KubeException, but log stacktrace.
-            #调用tg推送模块
-            print("统一认证平台登录失败,请检查github服务器网络状态")
-            post_tg('统一认证平台登录失败,请检查github服务器网络状态')
-
-
-
+            print("打卡失败,请检查github服务器网络状态")
+            self.Push('打卡失败,请检查github服务器网络状态')
+                
 if __name__ == '__main__':
-    f_name = "account.json"
-    # 填写要自动打卡的：账号 密码, 然后自己实现循环即可帮多人打卡
-    # aps = [("<username>", "<password>")]
+    # 因为是github action版本，所以不加上循环多人打卡功能   
     account = os.getenv("account")
-    pwd = os.getenv("pwd")
-    if account == "" or pwd == "":
-        if not os.path.exists(f_name):
-            with open(f_name, "w") as f:
-                account, pwd = input("未配置账号密码，请添加secrets").split()
-                json.dump({"account": account, "password": pwd}, f)
-        else:
-            with open(f_name, "r") as f:
-                d = json.load(f)
-                account, pwd = d.get("account"), d.get("password")
-
-    s = HealthCheckInHelper(account, pwd, delay_run=True)
+    password = os.getenv("password")
+    s = HealthCheckInHelper(account, password, delay_run=True)
     s.run() 
  
