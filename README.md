@@ -28,7 +28,7 @@ Mrli学长原库链接：https://github.com/Freedomisgood/When_Coding_in_ZJU/tre
  
  > account:通行证账号
  > 
- > pwd:通行证密码
+ > password:通行证密码
  > 
  > lng:所打卡位置的经度
  > 
